@@ -47,6 +47,20 @@ contextBridge.exposeInMainWorld('ptDesktop', {
   // Read a file's bytes by on-disk path — reopening a path-based recent.
   readFileByPath: (filePath: string): Promise<ArrayBuffer | null> =>
     ipcRenderer.invoke('pt-read-file', filePath) as Promise<ArrayBuffer | null>,
+  // A file's on-disk content stamp (live session sync); null when gone.
+  statFile: (filePath: string): Promise<{ mtimeMs: number; size: number } | null> =>
+    ipcRenderer.invoke('pt-stat-file', filePath) as Promise<{ mtimeMs: number; size: number } | null>,
+  // Live session sync: the main process stat-watches subscribed paths and
+  // pushes their change events through the one pt-file-changed stream.
+  watchFile: (filePath: string): void => {
+    ipcRenderer.send('pt-watch-file', filePath);
+  },
+  unwatchFile: (filePath: string): void => {
+    ipcRenderer.send('pt-unwatch-file', filePath);
+  },
+  onFileChanged: (cb: (path: string) => void): void => {
+    ipcRenderer.on('pt-file-changed', (_event, p: string) => cb(p));
+  },
   // A PDF picked while this window already shows one opens elsewhere.
   openInNewWindow: (name: string, data: ArrayBuffer) => {
     ipcRenderer.send('pt-open-new-window', { name, data });

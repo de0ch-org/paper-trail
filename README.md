@@ -102,6 +102,11 @@ diffs cleanly, so versioning it in git alongside the paper works well.
 - To pick your reading back up later, use the **Recent** list on the
   welcome screen — it reopens the PDF together with its session — or
   click **Load session…** in the toolbar.
+- The open session follows its file: edit the `.ptl` on disk (a script,
+  another tool, a git checkout) and the window updates to it right away,
+  reading position included. If you have unsaved changes here when the
+  file changes outside, a banner lets you pick — overwrite the file or
+  reload its version — and nothing is written over until you choose.
 - Session files are made to last: every future version of Paper Trail
   opens sessions saved by this one.
 

@@ -22,6 +22,23 @@ import { ensureReadPermission } from './store';
 import type {} from './types'; // the Window.ptDesktop global augmentation
 
 /**
+ * A point-in-time identity of the file's on-disk content, for detecting
+ * that someone else wrote the file. Equal stamps mean "unchanged"; a
+ * differing stamp only means "look again" (the reader compares content),
+ * so coarse mtime resolution can't corrupt anything.
+ */
+export interface FileStamp {
+  mtimeMs: number;
+  size: number;
+}
+
+/** Two nullable stamps describe the same on-disk content. */
+export function sameStamp(a: FileStamp | null, b: FileStamp | null): boolean {
+  if (!a || !b) return a === b;
+  return a.mtimeMs === b.mtimeMs && a.size === b.size;
+}
+
+/**
  * A file the app can read from and (for session files) write back to,
  * identified by exactly one mechanism — a browser handle or an on-disk
  * path.
@@ -55,6 +72,20 @@ export interface BoundFile {
    * proceed — a false is a declined prompt, distinct from a missing file.
    */
   requestRead(): Promise<boolean>;
+  /**
+   * The current on-disk content stamp, or null when the file is missing,
+   * unreadable, or the mechanism can't stat it (test fakes). Never throws.
+   */
+  stamp(): Promise<FileStamp | null>;
+  /**
+   * Start watching the file for on-disk changes made by OTHER writers
+   * (an external script, another window, an editor). `onChange` is a
+   * bare "look again" signal — it may fire for this app's own writes
+   * too; the subscriber compares stamps/content. Returns the unwatch
+   * function. A file that can't be watched (a test-fake handle) returns
+   * a no-op unwatcher and never fires.
+   */
+  watch(onChange: () => void, opts?: { intervalMs?: number }): () => void;
 }
 
 /** The desktop shell's preload bridge, or null in a plain browser / node. */
@@ -65,6 +96,41 @@ function desktopBridge(): NonNullable<Window['ptDesktop']> | null {
 /** Filename portion of an on-disk path (either separator). */
 function baseName(p: string): string {
   return p.split(/[\\/]/).pop() ?? '';
+}
+
+/**
+ * Fallback watcher: poll the file's stamp and signal when it moves.
+ * The first poll only takes the baseline — the subscriber records its
+ * own baseline at bind time, so nothing is lost. Overlapping ticks
+ * collapse (a slow stat never stacks).
+ */
+function pollStamp(
+  file: Pick<BoundFile, 'stamp'>,
+  onChange: () => void,
+  intervalMs: number,
+): () => void {
+  let last: FileStamp | null | undefined; // undefined = no baseline yet
+  let ticking = false;
+  const tick = async (): Promise<void> => {
+    if (ticking) return;
+    ticking = true;
+    try {
+      const s = await file.stamp();
+      if (last === undefined) { last = s; return; }
+      // Only a PRESENT, different stamp signals: transient nulls (the
+      // file mid-replace, a revoked grant) must not fire, and the next
+      // present stamp after one compares against the last real content.
+      if (s && !sameStamp(s, last)) {
+        last = s;
+        onChange();
+      }
+    } finally {
+      ticking = false;
+    }
+  };
+  void tick();
+  const timer = setInterval(() => { void tick(); }, intervalMs);
+  return () => clearInterval(timer);
 }
 
 /** A file identified by a File System Access handle (browser mechanisms). */
@@ -137,6 +203,26 @@ export class HandleFile implements BoundFile {
   async requestRead(): Promise<boolean> {
     return ensureReadPermission(this.handle);
   }
+
+  async stamp(): Promise<FileStamp | null> {
+    try {
+      const f = await this.handle.getFile();
+      return { mtimeMs: f.lastModified, size: f.size };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Handles have no change events — the File System Access API can only
+   * poll getFile()'s lastModified. Gated on isSameEntry the same way
+   * recordRecent gates: a test-fake handle (no isSameEntry) mints a
+   * fresh lastModified on every getFile() and would fire non-stop.
+   */
+  watch(onChange: () => void, { intervalMs = 1000 }: { intervalMs?: number } = {}): () => void {
+    if (typeof this.handle.isSameEntry !== 'function') return () => {};
+    return pollStamp(this, onChange, intervalMs);
+  }
 }
 
 /**
@@ -198,6 +284,57 @@ export class PathFile implements BoundFile {
   async requestRead(): Promise<boolean> {
     return true;
   }
+
+  async stamp(): Promise<FileStamp | null> {
+    try {
+      return (await desktopBridge()?.statFile?.(this.path)) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The desktop shell pushes change events (it stat-watches the path in
+   * the main process — see pt-watch-file in desktop/main.ts), so external
+   * writes surface within a few hundred ms. A shell without the watch
+   * bridge (older build) falls back to polling the stat IPC.
+   */
+  watch(onChange: () => void, { intervalMs = 1000 }: { intervalMs?: number } = {}): () => void {
+    const unwatch = subscribePathChange(this.path, onChange);
+    return unwatch ?? pollStamp(this, onChange, intervalMs);
+  }
+}
+
+// One renderer-wide dispatch table for pushed path-change events: the
+// preload bridge registers a single ipc listener, and each watched path
+// keeps its subscriber set here. The shell watches a path while at least
+// one subscriber holds it.
+let pathChangeTargets: Map<string, Set<() => void>> | null = null;
+
+function subscribePathChange(path: string, onChange: () => void): (() => void) | null {
+  const bridge = desktopBridge();
+  if (!bridge?.watchFile || !bridge.unwatchFile || !bridge.onFileChanged) return null;
+  if (!pathChangeTargets) {
+    const targets = new Map<string, Set<() => void>>();
+    pathChangeTargets = targets;
+    bridge.onFileChanged((p) => {
+      for (const fn of [...(targets.get(p) ?? [])]) fn();
+    });
+  }
+  let subs = pathChangeTargets.get(path);
+  if (!subs) {
+    subs = new Set();
+    pathChangeTargets.set(path, subs);
+    bridge.watchFile(path);
+  }
+  subs.add(onChange);
+  return () => {
+    subs.delete(onChange);
+    if (subs.size === 0) {
+      pathChangeTargets?.delete(path);
+      desktopBridge()?.unwatchFile?.(path);
+    }
+  };
 }
 
 // ---- acquisition factories -------------------------------------------------

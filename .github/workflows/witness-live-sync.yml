@@ -1,0 +1,46 @@
+# Focused dev workflow: build + run ONLY the live session sync tests
+# (unit + browser + desktop), on BOTH macOS and Windows, for fast
+# per-platform red/green on the feature branch. The full ci.yml also
+# runs all three (both jobs) for the release.
+
+name: live-sync tests
+
+on:
+  # Push-triggered on the dev branch (a brand-new workflow can't be
+  # dispatched by name until it's on the default branch); dispatch stays
+  # available once it reaches main.
+  push:
+    branches: [claude/file-change-live-sync-c598su]
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # One mac + one windows leg — witness the behavior on EACH platform.
+        runner: ${{ github.repository_owner == 'de0ch-org' && fromJSON('["depot-macos-latest","depot-windows-2025"]') || fromJSON('["macos-latest","windows-latest"]') }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run build
+      - name: Generate the test-fixture PDFs
+        run: node build-node/tools/fixture.js
+      - name: Live-sync unit tests (file stamps + change watching)
+        shell: bash
+        run: node --test build-node/test/liveSyncUnit.js
+      - name: Start the web server for the browser suite
+        shell: bash
+        run: |
+          node build-node/node/server.js 8377 &
+          sleep 2
+      - name: External session-file changes live-sync into the window (browser)
+        shell: bash
+        run: node build-node/test/liveSyncWeb.js
+      - name: External session-file changes live-sync into the window (desktop)
+        shell: bash
+        run: npx electron build-node/test/desktopLiveSync.js
