@@ -1,6 +1,6 @@
 {
   "name": "paper-trail",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "private": true,
   "description": "A PDF reader with a list of navigation history stacks: browser-style back/forward plus cmd+click forking.",
   "type": "commonjs",
