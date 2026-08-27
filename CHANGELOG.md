@@ -3,6 +3,19 @@
 User-facing changes per release. The release workflow copies the
 matching section into the GitHub Release notes.
 
+## 1.2.0
+
+- The standard PDF navigation keys now work. Page Up and Page Down (and
+  Space / Shift+Space) scroll by a screenful, Home and End jump to the
+  start and end of the document, the up and down arrows scroll in small
+  steps, and the left and right arrows go to the previous or next page.
+- Like all scrolling, the navigation keys never move the entries on your
+  trail — only your reading position. Inside a text field, such as the
+  page number box or the search box, the keys keep their normal
+  text-editing behavior.
+- The keyboard cheat-sheet (press ?) lists the new keys in a Pages
+  section.
+
 ## 1.1.2
 
 - New command-line helper `ptopen` (macOS), attached to this release as

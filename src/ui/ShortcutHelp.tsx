@@ -43,6 +43,16 @@ const GROUPS: Array<{ title: string; rows: Array<{ keys: string[]; label: string
     ],
   },
   {
+    title: 'Pages',
+    rows: [
+      { keys: ['←', '→'], label: 'Previous / next page' },
+      { keys: ['PgUp', 'PgDn'], label: 'Scroll a screen up / down' },
+      { keys: ['Space', '⇧+Space'], label: 'Scroll a screen down / up' },
+      { keys: ['↑', '↓'], label: 'Scroll a little' },
+      { keys: ['Home', 'End'], label: 'Start / end of the document' },
+    ],
+  },
+  {
     title: 'Find and view',
     rows: [
       { keys: [`${MOD}+F`], label: 'Search' },

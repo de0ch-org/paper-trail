@@ -99,9 +99,11 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   const toggleHelp = () => setHelpOpen((v) => !v);
 
-  // Global keyboard shortcuts. Every action needs a modifier — this is a
-  // normal app, not a modal editor; plain typing must never trigger
-  // anything. (Escape only dismisses.)
+  // Global keyboard shortcuts. Chorded actions need a modifier — this is
+  // a normal app, not a modal editor; plain typing must never trigger
+  // anything (Escape only dismisses). The dedicated navigation keys
+  // (PageUp/PageDown, Space, Home/End, arrows) are not typing: outside
+  // text fields they do their standard PDF-viewer job.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -133,6 +135,28 @@ export default function App() {
         else if (e.code === 'BracketRight') { e.preventDefault(); controller.stackCycle(1); }
         else if (e.shiftKey && e.code === 'KeyD') { e.preventDefault(); controller.stackDuplicateActive(); }
         return;
+      }
+      if (!mod && !editing) {
+        // Standard PDF navigation keys — plain scrolling, exactly like
+        // the wheel: history anchors never move. In a text field the
+        // `editing` guard above keeps the caret's own behavior.
+        switch (e.key) {
+          case 'PageDown': e.preventDefault(); controller.scrollByViewport(1); return;
+          case 'PageUp': e.preventDefault(); controller.scrollByViewport(-1); return;
+          case ' ':
+            // Space on a focused button is that button's keyboard click.
+            if ((e.target as HTMLElement)?.tagName === 'BUTTON') return;
+            e.preventDefault();
+            controller.scrollByViewport(e.shiftKey ? -1 : 1);
+            return;
+          case 'Home': e.preventDefault(); controller.scrollToEdge(-1); return;
+          case 'End': e.preventDefault(); controller.scrollToEdge(1); return;
+          case 'ArrowDown': e.preventDefault(); controller.scrollByLine(1); return;
+          case 'ArrowUp': e.preventDefault(); controller.scrollByLine(-1); return;
+          case 'ArrowLeft': e.preventDefault(); controller.pageStep(-1); return;
+          case 'ArrowRight': e.preventDefault(); controller.pageStep(1); return;
+          default: break;
+        }
       }
       if (!mod) return;
       switch (e.key.toLowerCase()) {

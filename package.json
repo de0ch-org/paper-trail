@@ -1,6 +1,6 @@
 {
   "name": "paper-trail",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "private": true,
   "description": "A PDF reader with a list of navigation history stacks: browser-style back/forward plus cmd+click forking.",
   "type": "commonjs",
@@ -54,6 +54,7 @@
     "test:e2e:ui-audit": "node build-node/test/uiAlignmentAudit.js",
     "test:e2e:hover-spacing": "node build-node/test/hoverIconSpacing.js",
     "test:e2e:alt-arrows": "node build-node/test/altArrowsEditing.js",
+    "test:e2e:page-nav": "node build-node/test/keyboardPageNav.js",
     "test:e2e:rename-target": "node build-node/test/histRenameTarget.js",
     "test:e2e:resize-cancel": "node build-node/test/resizeDragCancel.js",
     "test:desktop:edges": "electron build-node/test/desktopEdges.js",

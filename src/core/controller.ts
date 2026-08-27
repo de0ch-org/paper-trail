@@ -928,6 +928,54 @@ export class Controller {
   zoomOut(): void { this.viewer.setScale(this.viewer.scale / 1.15); }
   fitWidth(): void { this.viewer.setScale(this.viewer.computeFitScale(), { fitWidth: true }); }
 
+  // ---------- keyboard view scrolling ----------
+  // The standard PDF-viewer navigation keys. All of these are plain
+  // scrolls, exactly like the mouse wheel: no history entries, no anchor
+  // changes — only the session's view position updates (via the normal
+  // scroll tracking, hence suppressTracking: false on the page snaps).
+
+  /** PageUp/PageDown/Space: one viewport, keeping a little overlap. */
+  scrollByViewport(dir: 1 | -1): void {
+    if (!this.docOpen) return;
+    const c = this.viewer.container;
+    c.scrollBy({ top: dir * Math.max(c.clientHeight - 48, 40) });
+  }
+
+  /** Arrow up/down: a small line step (mirrors native key scrolling). */
+  scrollByLine(dir: 1 | -1): void {
+    if (!this.docOpen) return;
+    this.viewer.container.scrollBy({ top: dir * 40 });
+  }
+
+  /** Home/End: the start of the document, or its last page's bottom. */
+  scrollToEdge(dir: -1 | 1): void {
+    if (!this.docOpen || this.viewer.numPages === 0) return;
+    const c = this.viewer.container;
+    if (dir === -1) {
+      c.scrollTop = 0;
+      return;
+    }
+    // Not scrollHeight: the viewer keeps deliberate padding below the last
+    // page, and End should end on content, not on the blank tail.
+    const last = this.viewer.pages[this.viewer.numPages - 1].el;
+    c.scrollTop = Math.max(0, last.offsetTop + last.offsetHeight - c.clientHeight);
+  }
+
+  /** Left/Right arrows: snap to the top of the previous/next page. */
+  pageStep(dir: 1 | -1): void {
+    if (!this.docOpen || this.viewer.numPages === 0) return;
+    const cur = this.viewer.currentPosition();
+    let target = cur.page + dir;
+    if (target < 1) {
+      // Stepping back from partway down the first page still does
+      // something useful: back to its top.
+      if (cur.yRatio <= 0) return;
+      target = 1;
+    }
+    if (target > this.viewer.numPages) return;
+    this.viewer.scrollTo({ page: target, yRatio: 0 }, { suppressTracking: false });
+  }
+
   refitIfNeeded(): void {
     if (this.docOpen && this.viewer.fitWidth) this.fitWidth();
   }
