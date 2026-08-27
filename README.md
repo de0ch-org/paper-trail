@@ -115,6 +115,7 @@ Here are some important ones:
 | Key | Action |
 | --- | --- |
 | `Alt+←` / `Alt+→` | Back / forward along the trail |
+| `←` / `→` | Previous / next page |
 | `Cmd/Ctrl+click` a link | Follow it in a new trail |
 | `Cmd/Ctrl+D` | Mark the current position |
 | `Cmd/Ctrl+S` | Save session |

@@ -300,6 +300,11 @@ jobs:
         shell: bash
         run: node build-node/test/altArrowsEditing.js
 
+      - name: Navigation keys scroll and page-step (and stay out of text fields)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: node build-node/test/keyboardPageNav.js
+
       - name: An open rename never lands on a different history entry
         if: ${{ !cancelled() }}
         shell: bash
@@ -854,6 +859,11 @@ jobs:
         if: ${{ !cancelled() }}
         shell: bash
         run: node build-node/test/altArrowsEditing.js
+
+      - name: Navigation keys scroll and page-step (and stay out of text fields)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: node build-node/test/keyboardPageNav.js
 
       - name: An open rename never lands on a different history entry
         if: ${{ !cancelled() }}
