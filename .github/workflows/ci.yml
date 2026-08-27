@@ -75,6 +75,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: node --test build-node/test/boundFileUnit.js
 
+      - name: Live-sync unit tests (file stamps + change watching)
+        if: ${{ !cancelled() }}
+        run: node --test build-node/test/liveSyncUnit.js
+
       - name: Recents merge logic (interleaved windows lose nothing)
         if: ${{ !cancelled() }}
         run: node --test build-node/test/recentsMergeUnit.js
@@ -250,6 +254,11 @@ jobs:
         shell: bash
         run: node build-node/test/writeGenerationDirty.js
 
+      - name: External session-file changes live-sync into the window (browser)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: node build-node/test/liveSyncWeb.js
+
       - name: Replacing with a corrupt PDF leaves the session untouched
         if: ${{ !cancelled() }}
         shell: bash
@@ -367,6 +376,11 @@ jobs:
         if: ${{ !cancelled() }}
         shell: bash
         run: npx electron build-node/test/desktopAutosave.js
+
+      - name: External session-file changes live-sync into the window (desktop)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: npx electron build-node/test/desktopLiveSync.js
 
       - name: Close with autosave on — no prompt, background flush
         if: ${{ !cancelled() }}
@@ -649,6 +663,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: node --test build-node/test/boundFileUnit.js
 
+      - name: Live-sync unit tests (file stamps + change watching)
+        if: ${{ !cancelled() }}
+        run: node --test build-node/test/liveSyncUnit.js
+
       - name: Recents merge logic (interleaved windows lose nothing)
         if: ${{ !cancelled() }}
         run: node --test build-node/test/recentsMergeUnit.js
@@ -810,6 +828,11 @@ jobs:
         shell: bash
         run: node build-node/test/writeGenerationDirty.js
 
+      - name: External session-file changes live-sync into the window (browser)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: node build-node/test/liveSyncWeb.js
+
       - name: Replacing with a corrupt PDF leaves the session untouched
         if: ${{ !cancelled() }}
         shell: bash
@@ -919,6 +942,11 @@ jobs:
         if: ${{ !cancelled() }}
         shell: bash
         run: npx electron build-node/test/desktopAutosave.js
+
+      - name: External session-file changes live-sync into the window (desktop)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: npx electron build-node/test/desktopLiveSync.js
 
       - name: Close with autosave on — no prompt, background flush
         if: ${{ !cancelled() }}

@@ -122,6 +122,13 @@ declare global {
       // (an OS-opened / input-fallback / shell-saved file with no handle).
       // null if the file is gone or unreadable.
       readFileByPath?: (path: string) => Promise<ArrayBuffer | null>;
+      // A file's on-disk content stamp; null when it is gone or unreadable.
+      statFile?: (path: string) => Promise<{ mtimeMs: number; size: number } | null>;
+      // Live session sync: subscribe/unsubscribe the shell's stat-watcher
+      // for a path; changes arrive through the single onFileChanged stream.
+      watchFile?: (path: string) => void;
+      unwatchFile?: (path: string) => void;
+      onFileChanged?: (cb: (path: string) => void) => void;
       // The native "save your reading session?" dialog on close, shown by the
       // renderer only when the async close-save couldn't write silently.
       confirmCloseSave?: () => Promise<'save' | 'dont-save' | 'cancel'>;

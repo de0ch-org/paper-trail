@@ -1,6 +1,6 @@
 {
   "name": "paper-trail",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "A PDF reader with a list of navigation history stacks: browser-style back/forward plus cmd+click forking.",
   "type": "commonjs",
@@ -17,6 +17,9 @@
     "test:unit:render": "node --test build-node/test/renderGeometryUnit.js",
     "test:recents:unit": "node --test build-node/test/recentsUnit.js",
     "test:boundfile:unit": "node --test build-node/test/boundFileUnit.js",
+    "test:livesync:unit": "node --test build-node/test/liveSyncUnit.js",
+    "test:e2e:live-sync": "node build-node/test/liveSyncWeb.js",
+    "test:desktop:live-sync": "electron build-node/test/desktopLiveSync.js",
     "test:recents:merge": "node --test build-node/test/recentsMergeUnit.js",
     "test:format:bom": "node --test build-node/test/progressBomUnit.js",
     "test:format:corpus": "node --test build-node/test/formatCorpusUnit.js",

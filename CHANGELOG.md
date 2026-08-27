@@ -3,7 +3,7 @@
 User-facing changes per release. The release workflow copies the
 matching section into the GitHub Release notes.
 
-## 1.2.0
+## 1.3.0
 
 - The standard PDF navigation keys now work. Page Up and Page Down (and
   Space / Shift+Space) scroll by a screenful, Home and End jump to the
@@ -15,6 +15,21 @@ matching section into the GitHub Release notes.
   text-editing behavior.
 - The keyboard cheat-sheet (press ?) lists the new keys in a Pages
   section.
+
+## 1.2.0
+
+- The open session now follows its file on disk. Edit the `.ptl`
+  outside the app — with a script, another tool, or a git checkout —
+  and the window picks the change up immediately: trails, zoom, and
+  the reading position all update, so the viewport lands where the
+  file says.
+- If the file changes outside while the window holds unsaved changes,
+  nothing is decided for you: a banner offers **Overwrite** (keep this
+  window's version, write it to the file) or **Reload** (take the
+  file's version). Saving over newer outside changes is refused until
+  you choose, so no version is ever silently lost.
+- Same-content rewrites of the session file (a `touch`, an identical
+  save) are recognized and ignored — no banner, no reload.
 
 ## 1.1.2
 

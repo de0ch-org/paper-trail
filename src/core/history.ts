@@ -98,6 +98,17 @@ export class NavStacks {
   canUndo(): boolean { return this.undoStack.length > 0; }
   canRedo(): boolean { return this.redoStack.length > 0; }
 
+  /**
+   * Drop the undo/redo history without touching the structure. For the
+   * session content being replaced from OUTSIDE (a live reload from
+   * disk): the snapshots describe a structure that no longer exists,
+   * and undo is in-memory-fragile by design — same as on reopen.
+   */
+  clearUndoRedo(): void {
+    this.undoStack = [];
+    this.redoStack = [];
+  }
+
   undo(): boolean {
     const prev = this.undoStack.pop();
     if (!prev) return false;

@@ -880,6 +880,59 @@ ipcMain.handle('pt-read-file', async (_event, filePath: string): Promise<ArrayBu
   }
 });
 
+// ---- live session sync ------------------------------------------------
+// The renderer keeps its bound session file in step with the disk (an
+// external script editing the .ptl shows up in the window immediately).
+// fs.watchFile ON PURPOSE, not fs.watch: it watches the PATH by stat
+// polling, so an editor's atomic rename-replace save and a
+// delete-then-recreate both keep reporting — fs.watch follows the inode
+// on some platforms and silently goes dead after a replace.
+
+// A file's on-disk content stamp; null when it is gone or unreadable.
+ipcMain.handle('pt-stat-file', async (
+  _event, filePath: string): Promise<{ mtimeMs: number; size: number } | null> => {
+  try {
+    const st = await fs.promises.stat(filePath);
+    return { mtimeMs: st.mtimeMs, size: st.size };
+  } catch {
+    return null;
+  }
+});
+
+// Watched paths per webContents, torn down with the webContents, so a
+// closed window never leaks its stat watchers.
+const fileWatchers = new Map<number, Map<string, () => void>>();
+
+ipcMain.on('pt-watch-file', (event, filePath: string) => {
+  const wc = event.sender;
+  const wcId = wc.id;
+  let watched = fileWatchers.get(wcId);
+  if (!watched) {
+    const fresh = new Map<string, () => void>();
+    watched = fresh;
+    fileWatchers.set(wcId, fresh);
+    wc.once('destroyed', () => {
+      for (const [p, listener] of fresh) fs.unwatchFile(p, listener);
+      fileWatchers.delete(wcId);
+    });
+  }
+  if (watched.has(filePath)) return;
+  const listener = (): void => {
+    if (!wc.isDestroyed()) wc.send('pt-file-changed', filePath);
+  };
+  watched.set(filePath, listener);
+  // 300ms: fast enough to read as "immediately", far above stat cost.
+  fs.watchFile(filePath, { interval: 300 }, listener);
+});
+
+ipcMain.on('pt-unwatch-file', (event, filePath: string) => {
+  const watched = fileWatchers.get(event.sender.id);
+  const listener = watched?.get(filePath);
+  if (!watched || !listener) return;
+  watched.delete(filePath);
+  fs.unwatchFile(filePath, listener);
+});
+
 // The close-save dialog, requested by the renderer's async close flow ONLY
 // when it couldn't write silently (never-saved session, denied permission, or
 // a failed write). Native, so it looks like the platform's. Returns the choice.

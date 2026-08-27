@@ -515,6 +515,41 @@ export default function App() {
               </button>
             </div>
           )}
+          {snap.diskConflict && (
+            <div
+              id="conflictBanner"
+              className="flex items-center gap-2 px-3 py-1.5 bg-[#4a1f12] text-[#f0a88a] border-b border-[#6b3018] text-[12px]"
+            >
+              <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                <b>{snap.diskConflict.fileName}</b> changed on disk, and this window
+                has unsaved changes.
+              </span>
+              <button
+                id="btnConflictOverwrite"
+                className="flex-none px-2 py-0.5 rounded-md bg-[#6b3018] hover:brightness-110 cursor-pointer"
+                title="Keep this window's reading session — write it over the file on disk"
+                onClick={() => controller.overwriteDiskSession()}
+              >
+                Overwrite
+              </button>
+              <button
+                id="btnConflictReload"
+                className="flex-none px-2 py-0.5 rounded-md bg-[#6b3018] hover:brightness-110 cursor-pointer"
+                title="Take the file's version — this window's unsaved changes are discarded"
+                onClick={() => void controller.reloadDiskSession()}
+              >
+                Reload
+              </button>
+              <button
+                id="btnConflictDismiss"
+                className="flex-none inline-flex items-center self-stretch px-1.5 cursor-pointer hover:text-white"
+                title="Decide later — the session stays unsaved and the file untouched"
+                onClick={() => controller.dismissDiskConflict()}
+              >
+                <IconClose />
+              </button>
+            </div>
+          )}
           <div
             ref={containerRef}
             id="viewerContainer"

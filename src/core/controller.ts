@@ -17,7 +17,8 @@ import {
   parseProgress, serializeProgress, progressVersion, PROGRESS_EXT, PROGRESS_VERSION,
 } from './progressFormat';
 import {
-  HandleFile, PathFile, fromPickerHandle, fromShellDialog, fromRecentRef, type BoundFile,
+  HandleFile, PathFile, fromPickerHandle, fromShellDialog, fromRecentRef, sameStamp,
+  type BoundFile, type FileStamp,
 } from './boundFile';
 import type {
   HistStack, OutlineNode, Pos, ProgressFile, SerializedState,
@@ -53,6 +54,9 @@ export interface Snapshot {
   confirmPdfName: string | null;
   /** The open PDF doesn't match the one the session was saved with. */
   mismatch: { savedName: string; openName: string } | null;
+  /** The session file changed on disk while this window holds unsaved
+   * changes — the user picks a side (overwrite / reload). */
+  diskConflict: { fileName: string } | null;
 }
 
 /**
@@ -132,6 +136,19 @@ export class Controller {
     file: BoundFile | null;
   } | null = null;
   private mismatch_: { savedName: string; openName: string } | null = null;
+
+  // ---- live sync with the on-disk session file ----
+  // The stamp and text of the disk content this window last read or
+  // wrote. A differing stamp with DIFFERING text is an external change;
+  // a differing stamp with the same text (a same-bytes rewrite, or a
+  // test fake minting fresh timestamps) is absorbed silently.
+  private diskStamp: FileStamp | null = null;
+  private diskText: string | null = null;
+  private unwatchSession: (() => void) | null = null;
+  private diskConflict_: { fileName: string } | null = null;
+  // Change signals arriving mid-reconcile coalesce into one trailing pass.
+  private reconcilingDisk = false;
+  private reconcileAgain = false;
 
   private fileSaveTimer: ReturnType<typeof setTimeout> | 0 = 0;
   private scrollTimer: ReturnType<typeof setTimeout> | 0 = 0;
@@ -309,6 +326,7 @@ export class Controller {
         pendingPdfName: this.pendingProgress?.json.pdf.name ?? null,
         confirmPdfName: this.confirmSession?.json.pdf.name ?? null,
         mismatch: this.mismatch_,
+        diskConflict: this.diskConflict_,
       };
     }
     return this.snapshot;
@@ -452,6 +470,165 @@ export class Controller {
     return true;
   }
 
+  // ---------- live sync with the on-disk session file ----------
+
+  /**
+   * THE binding point for the session file: aims the on-disk watcher at
+   * it and captures the baseline stamp/text the external-change checks
+   * compare against. (The Session.handle/path compatibility setters
+   * bypass this — test fakes injected there get no watcher, and with no
+   * recorded baseline the conflict gate stays out of their way.)
+   */
+  private bindSessionFile(file: BoundFile | null): void {
+    this.unwatchSession?.();
+    this.unwatchSession = null;
+    this.session.file = file;
+    this.diskStamp = null;
+    this.diskText = null;
+    this.diskConflict_ = null;
+    if (!file) return;
+    void (async () => {
+      try {
+        const stamp = await file.stamp();
+        const text = await file.readText();
+        // A write may have finished while this baseline read was in
+        // flight — its (newer) record wins over this one.
+        if (this.session.file === file && this.diskText === null) {
+          this.diskStamp ??= stamp;
+          this.diskText = text;
+        }
+      } catch { /* unreadable right now — the first change signal re-reads */ }
+    })();
+    this.unwatchSession = file.watch(() => { void this.onDiskChangeSignal(); });
+  }
+
+  /**
+   * The watcher says the bound session file moved on disk. Reconcile
+   * passes are serialized: signals landing mid-pass coalesce into one
+   * trailing re-check, and an in-flight save settles first so this
+   * window's own write is recorded before the comparison.
+   */
+  private async onDiskChangeSignal(): Promise<void> {
+    if (this.reconcilingDisk) {
+      this.reconcileAgain = true;
+      return;
+    }
+    this.reconcilingDisk = true;
+    try {
+      do {
+        this.reconcileAgain = false;
+        await this.reconcileDiskChange();
+      } while (this.reconcileAgain);
+    } finally {
+      this.reconcilingDisk = false;
+    }
+  }
+
+  private async reconcileDiskChange(): Promise<void> {
+    await this.saveChain; // let a running write record its own stamp first
+    const file = this.session.file;
+    if (!file || !this.docOpen) return;
+    const stamp = await file.stamp();
+    // Missing/unreadable is NOT a change to adopt: keep the state (and
+    // any unsaved edits) intact — recreating the file is what the next
+    // save is for, and a reappearing file signals the watcher again.
+    if (!stamp || sameStamp(stamp, this.diskStamp)) return;
+    let text: string;
+    try {
+      text = await file.readText();
+    } catch {
+      return; // gone between stat and read — same policy as a null stamp
+    }
+    if (text === this.diskText) {
+      // Same bytes under a newer stamp (a touch, a same-content rewrite):
+      // nothing to reload and nothing to warn about.
+      this.diskStamp = stamp;
+      return;
+    }
+    if (this.session.dirty) {
+      // Unsaved changes here AND different bytes on disk: never silently
+      // pick a side. The banner offers both; auto-save meanwhile refuses
+      // to overwrite (see writeProgressNow), so the disk copy survives
+      // until the user decides.
+      if (!this.diskConflict_) {
+        this.diskConflict_ = { fileName: file.name };
+        this.notify();
+      }
+      return;
+    }
+    this.applyDiskSession(text, stamp);
+  }
+
+  /**
+   * Adopt on-disk session content into this window — the disk is the
+   * source of truth whenever nothing is unsaved here. Restores zoom,
+   * trails, and the reading position, so the viewport follows the file.
+   */
+  private applyDiskSession(text: string, stamp: FileStamp | null): boolean {
+    if (!this.docOpen) return false;
+    const json = parseProgress(text);
+    if (!json) {
+      // Garbage is most likely a writer caught mid-write: change nothing
+      // — its completing write signals the watcher again with full bytes.
+      return false;
+    }
+    this.diskStamp = stamp;
+    this.diskText = text;
+    this.sessionOrigin = json.keepV1
+      ? { keepV1: true, ...(json.savedRaw !== undefined ? { savedRaw: json.savedRaw } : {}) }
+      : {};
+    this.restoring = true;
+    try {
+      this.searchEntry = null;
+      this.restoreStateFrom(json.state);
+      // Same policy as reopening the file: undo history does not survive
+      // the session content being replaced underneath it.
+      this.hist.clearUndoRedo();
+    } finally {
+      this.restoring = false;
+    }
+    this.session.dirty = false;
+    clearTimeout(this.fileSaveTimer);
+    this.diskConflict_ = null;
+    this.mismatch_ = (json.pdf.name && json.pdf.name !== this.currentName)
+      ? { savedName: json.pdf.name, openName: this.currentName }
+      : null;
+    this.notify();
+    return true;
+  }
+
+  /** Banner: keep this window's version — write it over the disk copy. */
+  overwriteDiskSession(): void {
+    this.diskConflict_ = null;
+    this.notify();
+    void this.writeProgress({ force: true }).then((ok) => {
+      if (!ok) this.showToast('Save failed — the session file could not be written');
+    });
+  }
+
+  /** Banner: take the disk's version — this window's unsaved changes go. */
+  async reloadDiskSession(): Promise<void> {
+    this.diskConflict_ = null;
+    const file = this.session.file;
+    let ok = false;
+    if (file && this.docOpen) {
+      try {
+        const stamp = await file.stamp();
+        const text = await file.readText();
+        ok = this.applyDiskSession(text, stamp);
+      } catch { /* unreadable — reported below */ }
+    }
+    if (!ok) this.showToast('Couldn’t reload the session from its file');
+    this.notify();
+  }
+
+  /** Banner: dismissed for this occurrence — the next external change
+   * (or a blocked save) surfaces it again. */
+  dismissDiskConflict(): void {
+    this.diskConflict_ = null;
+    this.notify();
+  }
+
   private async refreshRecents(): Promise<void> {
     this.recents = await getRecents();
     this.notify();
@@ -529,13 +706,13 @@ export class Controller {
    * and succeeded; a failed write of either kind (an IPC false, a throwing
    * handle write) is a false, never a throw.
    */
-  async writeProgress(): Promise<boolean> {
-    const task = this.saveChain.then(() => this.writeProgressNow());
+  async writeProgress({ force = false } = {}): Promise<boolean> {
+    const task = this.saveChain.then(() => this.writeProgressNow({ force }));
     this.saveChain = task.then(() => undefined, () => undefined);
     return task;
   }
 
-  private async writeProgressNow(): Promise<boolean> {
+  private async writeProgressNow({ force = false } = {}): Promise<boolean> {
     // Never serialize a viewer that holds no document: after a failed
     // open/replace `docOpen` still describes the torn-down document (and
     // during a slow open the old document is already gone), so
@@ -555,8 +732,34 @@ export class Controller {
       const gen = this.dirtyGen;
       // Line-oriented plain-text format: small, clear git diffs.
       const text = serializeProgress(this.progressFileObject());
+      // The disk copy moved on since this window last read or wrote it
+      // (an external writer — see the live-sync watcher): overwriting
+      // those bytes blind would destroy them. Refuse, keep the session
+      // dirty, and surface the choice; the banner's Overwrite comes back
+      // through here with force. Only a KNOWN baseline gates — a binding
+      // that never stamped (test fakes) writes as before.
+      if (!force && this.diskStamp) {
+        const cur = await file.stamp();
+        if (cur && !sameStamp(cur, this.diskStamp)) {
+          let onDisk: string | null = null;
+          try {
+            onDisk = await file.readText();
+          } catch { /* unreadable counts as different */ }
+          if (onDisk !== this.diskText) {
+            if (!this.diskConflict_) this.diskConflict_ = { fileName: file.name };
+            return false; // stays dirty; the finally-notify shows the banner
+          }
+          this.diskStamp = cur; // same bytes, newer stamp — absorb it
+        }
+      }
       // ONE write path for both binding kinds (see boundFile.ts).
       const ok = await file.write(text);
+      if (ok) {
+        // Record what the disk now holds, so this write is never mistaken
+        // for an external change (and a real one right after it is caught).
+        this.diskText = text;
+        this.diskStamp = (await file.stamp()) ?? this.diskStamp;
+      }
       // Only a SUCCESSFUL write of the NEWEST state clears dirty. A failed
       // write leaves the change dirty so it's never silently lost; the next
       // auto-save / manual save / close-flush retries it. Likewise an edit
@@ -586,7 +789,10 @@ export class Controller {
       // failed write says so instead of silently leaving the change unsaved.
       const ok = await this.writeProgress();
       if (!ok) {
-        this.showToast(`Couldn’t write to ${String(bound.ref)}`);
+        // A conflict-refused write already shows the banner (the user
+        // picks overwrite/reload there) — a toast on top would just
+        // repeat it with less to act on.
+        if (!this.diskConflict_) this.showToast(`Couldn’t write to ${String(bound.ref)}`);
         return; // write failed — leave the session dirty
       }
       alreadyWritten = true;
@@ -644,12 +850,16 @@ export class Controller {
     // ---- Single convergence point: bind, write if not already, and record
     // the recent for EVERY first-save path (handle OR path). No acquisition
     // branch above may skip this — that was the missed-case bug.
-    this.session.file = bound;
+    if (bound !== this.session.file) this.bindSessionFile(bound);
+    else this.session.file = bound;
     if (!alreadyWritten) {
       // The queued writer clears dirty itself (generation-aware: an edit
       // arriving mid-write must stay dirty), so no blanket clear here.
       const ok = await this.writeProgress();
       if (!ok) {
+        // A conflict-refused write already shows the banner — no toast,
+        // no throw; the user resolves it there.
+        if (this.diskConflict_) return;
         // A failed path write says which file couldn't be written; a failed
         // handle write THROWS so saveProgressSafe and the close flow surface
         // it as "Save failed: …" (the wording the close tests pin).
@@ -1137,7 +1347,7 @@ export class Controller {
         this.restoring = false;
       }
 
-      this.session.file = sessionFile;
+      this.bindSessionFile(sessionFile);
       this.session.dirty = false;
       this.session.saving = false;
       clearTimeout(this.fileSaveTimer);
@@ -1333,7 +1543,7 @@ export class Controller {
     } finally {
       this.restoring = false;
     }
-    this.session.file = cs.file;
+    this.bindSessionFile(cs.file);
     this.session.dirty = false;
     this.session.saving = false;
     clearTimeout(this.fileSaveTimer);
